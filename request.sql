@@ -12,8 +12,6 @@ GO
 CREATE DATABASE [KN303_Moskvin]
 GO
 
-
-
 USE [KN303_Moskvin]
 GO
 
@@ -27,7 +25,6 @@ GO
 
 CREATE SCHEMA Moskvin 
 GO
-
 
 CREATE TABLE [KN303_Moskvin].Moskvin.Post
 (
@@ -60,7 +57,7 @@ CREATE TABLE [KN303_Moskvin].Moskvin.Region
 GO
 
 INSERT INTO [KN303_Moskvin].Moskvin.RegionName(RegionName)
-VALUES('������������ ���.'), ('����������� ���.'), ('���������� ���.')
+VALUES('Свердловская обл.'), ('Челябинская обл.'), ('Московская обл.')
 
 
 INSERT INTO [KN303_Moskvin].Moskvin.Region(RegionCode, RegionNameId)
@@ -88,13 +85,61 @@ CREATE TABLE [KN303_Moskvin].Moskvin.PostCrossing
 		REFERENCES [KN303_Moskvin].Moskvin.Post,
 	CONSTRAINT FK_RegionCode FOREIGN KEY(RegionCode)
 		REFERENCES [KN303_Moskvin].Moskvin.Region,
-	CHECK (AutomobileNumber LIKE '[ABCEKMOPTH][1-9][0-9][0-9][ABCEKMOPTH][ABCEKMOPTH][0-9][0-9]' OR 
-		   AutomobileNumber LIKE '[ABCEKMOPTH][1-9][0-9][0-9][ABCEKMOPTH][ABCEKMOPTH][127][0-9][0-9]'),
+	CHECK (UPPER(AutomobileNumber) LIKE '[АВЕКМНОРСТУХABEKMHOPCTYX][1-9][0-9][0-9][АВЕКМНОРСТУХABEKMHOPCTYX][АВЕКМНОРСТУХABEKMHOPCTYX][0-9][0-9]' OR 
+		   UPPER(AutomobileNumber) LIKE '[АВЕКМНОРСТУХABEKMHOPCTYX][1-9][0-9][0-9][АВЕКМНОРСТУХABEKMHOPCTYX][АВЕКМНОРСТУХABEKMHOPCTYX][127][0-9][0-9]'),
 	CHECK (Direction = 'In' or Direction = 'Out')
 )
 GO
 
+DELETE FROM [KN303_Moskvin].Moskvin.PostCrossing
+-- check number tests
+-- should raise 
+INSERT INTO [KN303_Moskvin].Moskvin.PostCrossing(CrossingId, CrossingPostId, AutomobileNumber, Direction, CrossingTime)
+	VALUES
+		(1, 'post1', 'Q123QQ96', 'In', GETDATE()), -- wrong letter
+		(2, 'post1', 'q123qq96', 'In', GETDATE()), -- wrong letter lower case
+		(3, 'post1', 'A000BC96', 'In', GETDATE()), -- number starts with 0
+		(4, 'post1' , 'A100BC300', 'In', GETDATE()), -- region starts with 3
+		(5, 'post1','bbbbbbbb', 'In', GETDATE()) -- not a number
+GO
+
+DELETE FROM [KN303_Moskvin].Moskvin.PostCrossing
+GO
+
+-- should pass
+INSERT INTO [KN303_Moskvin].Moskvin.PostCrossing(CrossingId, CrossingPostId, AutomobileNumber, Direction, CrossingTime)
+	VALUES
+		(1, 'post1', 'A123AA96', 'In', GETDATE()), -- just a number
+		(2, 'post1', 'B123AA196', 'In', GETDATE()) -- number with 3 chars on region
+GO
+
+DELETE FROM [KN303_Moskvin].Moskvin.PostCrossing
+GO
+
+-- Check direction tests
+-- Should raise
+INSERT INTO [KN303_Moskvin].Moskvin.PostCrossing(CrossingId, CrossingPostId, AutomobileNumber, Direction, CrossingTime)
+	VALUES
+		(1, 'post1', 'A123AA96', 'On', GETDATE()), -- When not valid direction/word
+		(2, 'post1', 'B123AA196', '123', GETDATE()), -- When not valid direction/number
+		(3, 'post1', 'C123AAA96', 'in', GETDATE()) -- When lower case in
+GO
+
+DELETE FROM [KN303_Moskvin].Moskvin.PostCrossing
+GO
+
+-- Should pass
+INSERT INTO [KN303_Moskvin].Moskvin.PostCrossing(CrossingId, CrossingPostId, AutomobileNumber, Direction, CrossingTime)
+	VALUES
+		(1, 'post1', 'A123AA96', 'In', GETDATE()), -- When valid In
+		(2, 'post1', 'A123AB96', 'Out', GETDATE()) -- When valid Out
+GO
+
+DELETE FROM [KN303_Moskvin].Moskvin.PostCrossing
+
+
 SELECT RegionCode FROM [KN303_Moskvin].Moskvin.PostCrossing
+GO
 
 CREATE TRIGGER IncorrectCrossingTrigger 
 	ON [KN303_Moskvin].Moskvin.PostCrossing 
@@ -111,9 +156,26 @@ CREATE TRIGGER IncorrectCrossingTrigger
 								))
 					BEGIN
 						ROLLBACK TRANSACTION
-						PRINT('������ ������ ���� � ����� ����������� ��� ���� ������.')
+						PRINT('Нельзя проходить посты в одном и том же направлении подряд.')
 					END
 			END
+GO
+
+-- IncorrectCrossingTrigger tests
+INSERT INTO [KN303_Moskvin].Moskvin.PostCrossing(CrossingId, CrossingPostId, AutomobileNumber, Direction, CrossingTime)
+	VALUES
+		(1, 'post1', 'A123AA96', 'In', '2021-12-11 05:00:00')
+GO
+
+INSERT INTO [KN303_Moskvin].Moskvin.PostCrossing(CrossingId, CrossingPostId, AutomobileNumber, Direction, CrossingTime)
+	VALUES
+		(2, 'post1', 'A123AA96', 'In', '2021-12-11 06:00:00')
+GO
+
+DELETE FROM [KN303_Moskvin].Moskvin.PostCrossing
+GO
+
+DROP TRIGGER TooFastCrossingTrigger
 GO
 
 CREATE TRIGGER TooFastCrossingTrigger 
@@ -132,53 +194,133 @@ CREATE TRIGGER TooFastCrossingTrigger
 				@CrossingTime = inserted.CrossingTime
 				FROM Inserted
 
-				SELECT DATEDIFF(minute, (SELECT MAX(CrossingTime) 
+				IF (ABS(DATEDIFF(minute, (SELECT MAX(CrossingTime) 
 						  FROM [KN303_Moskvin].Moskvin.PostCrossing
 						  WHERE CrossingId != @Id 
-						  AND AutomobileNumber = @Number),  @CrossingTime)
-				IF (DATEDIFF(minute, (SELECT MAX(CrossingTime) 
-						  FROM [KN303_Moskvin].Moskvin.PostCrossing
-						  WHERE CrossingId != @Id 
-						  AND AutomobileNumber = @Number),  @CrossingTime) < @TimeoutBetweenCrossing)
+						  AND AutomobileNumber = @Number),  @CrossingTime)) < @TimeoutBetweenCrossing)
 				BEGIN
 					ROLLBACK TRANSACTION
-					PRINT('������� ������ ����������� ������. ������� ������ ����: ' + CAST(@TimeoutBetweenCrossing as varchar) + ' �����')
+					PRINT('Слишком частое пересечение постов. Разница должна быть: ' + CAST(@TimeoutBetweenCrossing as varchar) + ' минут')
 				END
 			END
 GO
 
-INSERT INTO [KN303_Moskvin].Moskvin.PostCrossing (CrossingId, CrossingPostId, AutomobileNumber, Direction, CrossingTime)
-	VALUES 
-		('qqq3q44weq4', 'post2', 'A123AA196', 'In', '2007-05-09 00:36:00')
+-- TooFastCrossingTrigger tests
+-- Should raise
+DELETE FROM [KN303_Moskvin].Moskvin.PostCrossing
+
+INSERT INTO [KN303_Moskvin].Moskvin.PostCrossing(CrossingId, CrossingPostId, AutomobileNumber, Direction, CrossingTime)
+	VALUES
+		(1, 'post1', 'A123AA96', 'In', '2021-12-11 05:00:00')
 GO
 
-SELECT DATEDIFF(minute,      '2005-12-31 23:59:59.9999999', '2006-01-01 00:00:00.0000000');
+INSERT INTO [KN303_Moskvin].Moskvin.PostCrossing(CrossingId, CrossingPostId, AutomobileNumber, Direction, CrossingTime)
+	VALUES
+		(2, 'post1', 'A123AA96', 'Out', '2021-12-11 05:06:00')
+GO
+
 DELETE FROM [KN303_Moskvin].Moskvin.PostCrossing
-SELECT * FROM  [KN303_Moskvin].Moskvin.PostCrossing
 
 DROP VIEW LocalAutomobiles
+GO
+-- Местные машины
 CREATE VIEW LocalAutomobiles AS
-SELECT AutomobileNumber as [�����] FROM [KN303_Moskvin].Moskvin.PostCrossing AS f1
-WHERE CrossingTime IN
-	(SELECT MIN(CrossingTime) FROM [KN303_Moskvin].Moskvin.PostCrossing AS f2
-	 WHERE f1.AutomobileNumber = f2.AutomobileNumber 
-	 AND Direction = 'Out'
-	 AND CrossingTime < (SELECT MAX(CrossingTime) FROM [KN303_Moskvin].Moskvin.PostCrossing AS f3
-						 WHERE f1.AutomobileNumber = f3.AutomobileNumber 
-						 AND Direction = 'In'))
-	GROUP BY AutomobileNumber, f1.CrossingTime
-
-SELECT f1.AutomobileNumber AS [�����], f3.R AS [�������� �������], MIN(f1.CrossingTime) AS [����� ������], MAX(f2.CrossingTime) AS [����� ������]
+(SELECT f1.AutomobileNumber AS [Номер], f1.CrossingTime AS [Время выезда], f2.CrossingTime AS [Время въезда], r.RegionName as [Название региона]
 	FROM [KN303_Moskvin].Moskvin.PostCrossing f1
 		INNER JOIN [KN303_Moskvin].Moskvin.PostCrossing f2
 		ON (f1.AutomobileNumber = f2.AutomobileNumber 
 			AND f1.Direction = 'Out' AND f2.Direction = 'In'
-			AND f1.CrossingTime < f2.CrossingTime
-			AND CAST(f1.CrossingTime AS DATE) = '2007-05-09')
-		INNER JOIN [KN303_Moskvin].Moskvin.RegionName f3 ON 
-		f1.RegionCode = f3.RegionNameId
-GROUP BY  f1.AutomobileNumber, f1.CrossingTime, f2.CrossingTime, f3.RegionName
+			AND f2.CrossingTime = (SELECT MIN(CrossingTime) 
+								   FROM [KN303_Moskvin].Moskvin.PostCrossing 
+								   WHERE CrossingTime > f1.CrossingTime))
+		INNER JOIN (SELECT r1.RegionCode, r2.RegionName FROM [KN303_Moskvin].Moskvin.Region r1
+					INNER JOIN [KN303_Moskvin].Moskvin.RegionName r2
+					ON r1.RegionNameId = r2.RegionNameId
+					GROUP BY r1.RegionCode, r2.RegionName) r ON f1.RegionCode = r.RegionCode
+WHERE r.RegionName = 'Свердловская обл.'
+GROUP BY  f1.AutomobileNumber, f1.CrossingTime, f2.CrossingTime, r.RegionName)
+GO
 
-SELECT RegionCode, RegionName.RegionName FROM [KN303_Moskvin].Moskvin.Region Inner Join [KN303_Moskvin].Moskvin.RegionName on 
-[KN303_Moskvin].Moskvin.RegionName.RegionNameId = [KN303_Moskvin].Moskvin.Region.RegionNameId GROUP BY RegionCode, RegionName.RegionName
-SELECT * FROM Tranzit
+SELECT * FROM LocalAutomobiles
+
+DELETE FROM [KN303_Moskvin].Moskvin.PostCrossing
+SELEct * FROM [KN303_Moskvin].Moskvin.PostCrossing
+
+INSERT INTO [KN303_Moskvin].Moskvin.PostCrossing(CrossingId, CrossingPostId, AutomobileNumber, Direction, CrossingTime)
+VALUES
+	(1, 'post1', 'A123AA96', 'Out', '2021-12-11 05:00:00'),
+	(2, 'post1', 'A123AA96', 'In', '2021-12-11 08:15:00')
+GO
+
+INSERT INTO [KN303_Moskvin].Moskvin.PostCrossing(CrossingId, CrossingPostId, AutomobileNumber, Direction, CrossingTime)
+VALUES
+	(3, 'post1', 'A123AA96', 'Out', '2021-12-11 09:20:00')
+GO
+
+INSERT INTO [KN303_Moskvin].Moskvin.PostCrossing(CrossingId, CrossingPostId, AutomobileNumber, Direction, CrossingTime)
+VALUES
+	(4, 'post1', 'A123AA96', 'In', '2021-12-11 10:20:00')
+GO
+
+DROP VIEW TranzitAutomobiles
+-- Транзитные машины
+CREATE VIEW TranzitAutomobiles AS
+(SELECT f1.AutomobileNumber AS [Номер], f1.CrossingTime AS [Время въезда], f2.CrossingTime AS [Время выезда], r.RegionName as [Название региона]
+	FROM [KN303_Moskvin].Moskvin.PostCrossing f1
+		INNER JOIN [KN303_Moskvin].Moskvin.PostCrossing f2
+		ON (f1.AutomobileNumber = f2.AutomobileNumber 
+			AND f1.Direction = 'In' AND f2.Direction = 'Out'
+			AND f1.CrossingPostId != f2.CrossingPostId
+			AND f2.CrossingTime = (SELECT MIN(CrossingTime) 
+								   FROM [KN303_Moskvin].Moskvin.PostCrossing 
+								   WHERE CrossingTime > f1.CrossingTime))
+		INNER JOIN (SELECT r1.RegionCode, r2.RegionName FROM [KN303_Moskvin].Moskvin.Region r1
+					INNER JOIN [KN303_Moskvin].Moskvin.RegionName r2
+					ON r1.RegionNameId = r2.RegionNameId
+					GROUP BY r1.RegionCode, r2.RegionName) r ON f1.RegionCode = r.RegionCode
+WHERE r.RegionName != 'Свердловская обл.'
+GROUP BY  f1.AutomobileNumber, f1.CrossingTime, f2.CrossingTime, r.RegionName)
+
+DELETE FROM [KN303_Moskvin].Moskvin.PostCrossing
+
+
+INSERT INTO [KN303_Moskvin].Moskvin.PostCrossing(CrossingId, CrossingPostId, AutomobileNumber, Direction, CrossingTime)
+VALUES
+	(1, 'post1', 'A123AA74', 'In', '2021-12-11 09:00:00'),
+	(2, 'post2', 'A123AA74', 'Out', '2021-12-11 09:20:00')
+	
+GO
+
+INSERT INTO [KN303_Moskvin].Moskvin.PostCrossing(CrossingId, CrossingPostId, AutomobileNumber, Direction, CrossingTime)
+VALUES
+	(3, 'post2', 'A123AA74', 'In', '2021-12-11 09:40:00'),
+	(4, 'post3', 'A123AA74', 'Out', '2021-12-11 10:00:00')
+GO
+
+SELECT * FROM TranzitAutomobiles
+
+-- Иногородние машины
+DROP VIEW NonresidentAutomobile
+
+CREATE VIEW NonresidentAutomobile AS
+(SELECT f1.AutomobileNumber AS [Номер], f1.CrossingTime AS [Время выезда], f2.CrossingTime AS [Время въезда], r.RegionName as [Название региона]
+	FROM [KN303_Moskvin].Moskvin.PostCrossing f1
+		INNER JOIN [KN303_Moskvin].Moskvin.PostCrossing f2
+		ON (f1.AutomobileNumber = f2.AutomobileNumber 
+			AND f1.Direction = 'In' AND f2.Direction = 'Out'
+			AND f1.CrossingTime < f2.CrossingTime
+			AND f1.CrossingPostId = f2.CrossingPostId
+			AND f2.CrossingTime = (SELECT MIN(CrossingTime) 
+								   FROM [KN303_Moskvin].Moskvin.PostCrossing 
+								   WHERE CrossingTime > f1.CrossingTime))
+		INNER JOIN (SELECT r1.RegionCode, r2.RegionName FROM [KN303_Moskvin].Moskvin.Region r1
+					INNER JOIN [KN303_Moskvin].Moskvin.RegionName r2
+					ON r1.RegionNameId = r2.RegionNameId
+					GROUP BY r1.RegionCode, r2.RegionName) r ON f1.RegionCode = r.RegionCode
+GROUP BY  f1.AutomobileNumber, f1.CrossingTime, f2.CrossingTime, r.RegionName)
+
+SELECT * FROM NonresidentAutomobile
+INSERT INTO [KN303_Moskvin].Moskvin.PostCrossing (CrossingId, CrossingPostId, AutomobileNumber, Direction, CrossingTime)
+	VALUES 
+		('10', 'post1', 'A123AA74', 'Out', '2022-12-08 07:00:00')
+GO
