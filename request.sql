@@ -324,3 +324,23 @@ INSERT INTO [KN303_Moskvin].Moskvin.PostCrossing (CrossingId, CrossingPostId, Au
 	VALUES 
 		('10', 'post1', 'A123AA74', 'Out', '2022-12-08 07:00:00')
 GO
+
+CREATE VIEW OtherAutomobiles AS
+(SELECT f1.AutomobileNumber AS [Номер], f1.CrossingTime AS [Время выезда], f2.CrossingTime AS [Время въезда], r.RegionName as [Название региона]
+	FROM [KN303_Moskvin].Moskvin.PostCrossing f1
+		INNER JOIN [KN303_Moskvin].Moskvin.PostCrossing f2
+		ON (f1.AutomobileNumber = f2.AutomobileNumber 
+			AND f1.CrossingTime < f2.CrossingTime
+			AND f2.CrossingTime = (SELECT MIN(CrossingTime) 
+								   FROM [KN303_Moskvin].Moskvin.PostCrossing 
+								   WHERE CrossingTime > f1.CrossingTime))
+		INNER JOIN (SELECT r1.RegionCode, r2.RegionName FROM [KN303_Moskvin].Moskvin.Region r1
+					INNER JOIN [KN303_Moskvin].Moskvin.RegionName r2
+					ON r1.RegionNameId = r2.RegionNameId
+					GROUP BY r1.RegionCode, r2.RegionName) r ON f1.RegionCode = r.RegionCode
+WHERE NOT EXISTS (SELECT f1.AutomobileNumber, f1.CrossingTime, f2.CrossingTime, r.RegionName FROM NonresidentAutomobile)
+AND NOT EXISTS (SELECT f1.AutomobileNumber, f1.CrossingTime, f2.CrossingTime, r.RegionName FROM TranzitAutomobiles)
+AND NOT EXISTS (SELECT f1.AutomobileNumber, f1.CrossingTime, f2.CrossingTime, r.RegionName FROM LocalAutomobiles)
+GROUP BY  f1.AutomobileNumber, f1.CrossingTime, f2.CrossingTime, r.RegionName)
+
+SELECT * FROM OtherAutomobiles
